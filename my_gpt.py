@@ -1,0 +1,102 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import math
+
+
+class RMSNorm(nn.Module):
+    def __init__(self, dim: int, eps: float = 1e-5):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def _norm(self, x):
+        return x * torch.rsqrt(torch.mean(x * x, dim=-1, keepdim=True) + self.eps)
+
+    def forward(self, x):
+        output = self._norm(x.float()).type_as(x)
+        return output * self.weight
+
+
+class Attention(nn.Module):
+    def __init__(self, n_head, dim) -> None:
+        super().__init__()
+        self.n_head = n_head
+        self.dim = dim
+        head_dim = dim//n_head
+        self.linear_q = nn.Linear(dim, dim, bias=False)
+        self.linear_k = nn.Linear(dim, dim, bias=False)
+        self.linear_v = nn.Linear(dim, dim, bias=False)
+        self.head_dim = head_dim
+        self.norm = nn.LayerNorm(dim)
+        self.out = nn.Linear(dim, dim, bias=False)
+    
+    def forward(self, x):
+        # x: bs, seqlen, dim
+        bs, seqlen, dim = x.shape
+        
+        q = self.linear_q(x)  
+        k = self.linear_k(x)
+        v = self.linear_v(x)
+        
+        q = q.view(bs, seqlen, self.n_head, self.head_dim)  # bs, seqlen, n_head, head_dim @ bs, seqlen, head_dim, n_head
+        v = v.view(bs, seqlen, self.n_head, self.head_dim)  # bs, seqlen, n_head, head_dim
+        k = k.view(bs, seqlen, self.n_head, self.head_dim)  # bs, seqlen, n_head, head_dim
+        q, k, v = map(lambda x: x.transpose(1, 2), (q, k, v))  # bs, n_head, seqlen, head_dim
+        
+        attn_weight = torch.softmax(q @ k.transpose(-2, -1) / math.sqrt(self.head_dim), dim=-1)  # attn: bs, seqlen, seqlen
+        attn_weight = torch.dropout(attn_weight, 0.0, train=True)
+        out = attn_weight @ v
+        out = out.view(bs, seqlen, self.n_head * self.head_dim)
+        return self.out(out)
+
+
+class FeedForward(nn.Module):
+    def __init__(self, intermediate_size, dim) -> None:
+        super().__init__()
+        self.w1 = nn.Linear(dim, intermediate_size)
+        self.w3 = nn.Linear(dim, intermediate_size)
+        self.w2 = nn.Linear(intermediate_size, dim)
+    
+    def forward(self, x):
+        return self.w2(self.w1(x) + F.relu(self.w3(x)))
+
+
+class TransformerBlock(nn.Module):
+    def __init__(self, attention: Attention, feed_forward: FeedForward) -> None:
+        super().__init__()
+        self.attention = attention
+        self.feed_forward = feed_forward
+        self.attention_norm = RMSNorm(attention.dim)
+    
+    def forward(self, x):
+        h = self.attention(self.attention_norm(x))
+        return x + self.feed_forward(h)
+
+
+class Transformer(nn.Module):
+    def __init__(self, n_layers=2, n_head=8, head_dim=64, vocab_size=32000, max_seq_length=2048):
+        super().__init__()
+        self.token_embedding = nn.Embedding(vocab_size, head_dim)
+        self.positional_embedding = nn.Parameter(torch.randn(max_seq_length, head_dim))
+        attn = Attention(n_head, head_dim)
+        ffn = FeedForward(head_dim, head_dim)
+        self.attn = nn.ModuleList(TransformerBlock(attn, ffn) for _ in range(n_layers))
+        self.out_layer = nn.Linear(head_dim, vocab_size, bias=False)
+    
+    def forward(self, x):
+        
+        x_embed = self.token_embedding(x)
+        x = x_embed + self.positional_embedding
+        for attn in self.attn:
+            x = attn(x)
+
+        return self.out_layer(x)
+    
+    def generate(self, x):
+        # TODO: speculate, sampling, kv cache
+        pass
+    
+    
+t = Transformer(4, 8, 128, 32000, 2048)
+t.forward(torch.randint(0, 32000, (1, 2048)))

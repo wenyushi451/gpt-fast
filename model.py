@@ -61,7 +61,7 @@ transformer_configs = {
 class KVCache(nn.Module):
     def __init__(self, max_batch_size, max_seq_length, n_heads, head_dim, dtype=torch.bfloat16):
         super().__init__()
-        cache_shape = (max_batch_size, n_heads, max_seq_length, head_dim)
+        cache_shape = (max_batch_size, n_heads, max_seq_length, head_dim)  # cache size
         self.register_buffer('k_cache', torch.zeros(cache_shape, dtype=dtype))
         self.register_buffer('v_cache', torch.zeros(cache_shape, dtype=dtype))
 
@@ -108,7 +108,7 @@ class Transformer(nn.Module):
         assert self.freqs_cis is not None, "Caches must be initialized first"
         mask = self.causal_mask[None, None, input_pos]
         freqs_cis = self.freqs_cis[input_pos]
-        x = self.tok_embeddings(idx)
+        x = self.tok_embeddings(idx)  # torch.Size([1, None, 4096])
 
         for i, layer in enumerate(self.layers):
             x = layer(x, input_pos, freqs_cis, mask)
@@ -169,6 +169,7 @@ class Attention(nn.Module):
         k = k.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         v = v.view(bsz, seqlen, self.n_local_heads, self.head_dim)
 
+        # apply positional embedding for q and k only
         q = apply_rotary_emb(q, freqs_cis)
         k = apply_rotary_emb(k, freqs_cis)
 
