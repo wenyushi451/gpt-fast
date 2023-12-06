@@ -21,7 +21,7 @@ class RMSNorm(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, n_head, dim, is_casual, dropout=0.0) -> None:
+    def __init__(self, n_head, dim, is_casual, dropout=0.0, scale=None) -> None:
         super().__init__()
         self.n_head = n_head
         self.dim = dim
@@ -38,10 +38,12 @@ class Attention(nn.Module):
         self.out = nn.Linear(dim, dim, bias=False)
         self.is_casual = is_casual
         self.dropout = dropout
+        self.scale = scale
     
     def forward(self, x):
         # x: bs, seqlen, dim
         bs, seqlen, dim = x.shape
+        self.scale = self.scale if self.scale is not None else self.head_dim ** -0.5
         
         # q = self.linear_q(x)  
         # k = self.linear_k(x)
@@ -56,7 +58,7 @@ class Attention(nn.Module):
         if self.is_casual:
             self.casual_mask = torch.ones((seqlen, seqlen), dtype=torch.bool).tril(diagonal=0)
             attn_bias = torch.zeros_like(self.casual_mask, dtype=q.dtype).masked_fill(self.casual_mask.logical_not(), float('-inf'))
-        attn_weight = q @ k.transpose(-2, -1) / math.sqrt(self.head_dim)  # attn: bs, n_head seqlen, seqlen
+        attn_weight = q @ k.transpose(-2, -1) * self.scale  # attn: bs, n_head seqlen, seqlen
         assert attn_weight.shape == (bs, self.n_head, seqlen, seqlen)
         attn_weight += attn_bias
         attn_weight = torch.softmax(attn_weight, dim=-1)
