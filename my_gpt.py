@@ -19,7 +19,7 @@ class RMSNorm(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, n_head, dim) -> None:
+    def __init__(self, n_head, dim, is_casual, dropout=0.0) -> None:
         super().__init__()
         self.n_head = n_head
         self.dim = dim
@@ -30,6 +30,8 @@ class Attention(nn.Module):
         self.head_dim = head_dim
         self.norm = nn.LayerNorm(dim)
         self.out = nn.Linear(dim, dim, bias=False)
+        self.is_casual = is_casual
+        self.dropout = dropout
     
     def forward(self, x):
         # x: bs, seqlen, dim
@@ -44,8 +46,13 @@ class Attention(nn.Module):
         k = k.view(bs, seqlen, self.n_head, self.head_dim)  # bs, seqlen, n_head, head_dim
         q, k, v = map(lambda x: x.transpose(1, 2), (q, k, v))  # bs, n_head, seqlen, head_dim
         
-        attn_weight = torch.softmax(q @ k.transpose(-2, -1) / math.sqrt(self.head_dim), dim=-1)  # attn: bs, seqlen, seqlen
-        attn_weight = torch.dropout(attn_weight, 0.0, train=True)
+        if self.is_casual:
+            self.casual_mask = torch.ones((seqlen, seqlen), dtype=torch.bool).tril(diagonal=0)
+            attn_bias = torch.zeros_like(self.casual_mask, dtype=q.dtype).masked_fill(self.casual_mask.logical_not(), float('-inf'))
+        attn_weight = q @ k.transpose(-2, -1) / math.sqrt(self.head_dim)  # attn: bs, seqlen, seqlen
+        attn_weight += attn_bias
+        attn_weight = torch.softmax(attn_weight, dim=-1)
+        attn_weight = torch.dropout(attn_weight, self.dropout, train=True)
         out = attn_weight @ v
         out = out.view(bs, seqlen, self.n_head * self.head_dim)
         return self.out(out)
@@ -75,17 +82,17 @@ class TransformerBlock(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, n_layers=2, n_head=8, head_dim=64, vocab_size=32000, max_seq_length=2048):
+    def __init__(self, n_layers=2, n_head=8, head_dim=64, vocab_size=32000, max_seq_length=2048, is_casual=True):
         super().__init__()
         self.token_embedding = nn.Embedding(vocab_size, head_dim)
         self.positional_embedding = nn.Parameter(torch.randn(max_seq_length, head_dim))
-        attn = Attention(n_head, head_dim)
+        attn = Attention(n_head, head_dim, is_casual)
         ffn = FeedForward(head_dim, head_dim)
         self.attn = nn.ModuleList(TransformerBlock(attn, ffn) for _ in range(n_layers))
         self.out_layer = nn.Linear(head_dim, vocab_size, bias=False)
+        self.is_casual = is_casual
     
     def forward(self, x):
-        
         x_embed = self.token_embedding(x)
         x = x_embed + self.positional_embedding
         for attn in self.attn:
