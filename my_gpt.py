@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+from einops import rearrange
+from einops.layers.torch import Rearrange
 
 
 class RMSNorm(nn.Module):
@@ -24,9 +26,13 @@ class Attention(nn.Module):
         self.n_head = n_head
         self.dim = dim
         head_dim = dim//n_head
-        self.linear_q = nn.Linear(dim, dim, bias=False)
-        self.linear_k = nn.Linear(dim, dim, bias=False)
-        self.linear_v = nn.Linear(dim, dim, bias=False)
+        # self.linear_q = nn.Linear(dim, dim, bias=False)
+        # self.linear_k = nn.Linear(dim, dim, bias=False)
+        # self.linear_v = nn.Linear(dim, dim, bias=False)
+        self.to_qkv = nn.Sequential(
+            nn.Linear(dim, 3*dim, bias=False),
+            Rearrange('b n (qkv h d) -> qkv b h n d', qkv=3, d=head_dim, h=self.n_head),
+        )
         self.head_dim = head_dim
         self.norm = nn.LayerNorm(dim)
         self.out = nn.Linear(dim, dim, bias=False)
@@ -37,19 +43,21 @@ class Attention(nn.Module):
         # x: bs, seqlen, dim
         bs, seqlen, dim = x.shape
         
-        q = self.linear_q(x)  
-        k = self.linear_k(x)
-        v = self.linear_v(x)
+        # q = self.linear_q(x)  
+        # k = self.linear_k(x)
+        # v = self.linear_v(x)
         
-        q = q.view(bs, seqlen, self.n_head, self.head_dim)  # bs, seqlen, n_head, head_dim @ bs, seqlen, head_dim, n_head
-        v = v.view(bs, seqlen, self.n_head, self.head_dim)  # bs, seqlen, n_head, head_dim
-        k = k.view(bs, seqlen, self.n_head, self.head_dim)  # bs, seqlen, n_head, head_dim
-        q, k, v = map(lambda x: x.transpose(1, 2), (q, k, v))  # bs, n_head, seqlen, head_dim
+        # q = q.view(bs, seqlen, self.n_head, self.head_dim)  # bs, seqlen, n_head, head_dim @ bs, seqlen, head_dim, n_head
+        # v = v.view(bs, seqlen, self.n_head, self.head_dim)  # bs, seqlen, n_head, head_dim
+        # k = k.view(bs, seqlen, self.n_head, self.head_dim)  # bs, seqlen, n_head, head_dim
+        q, k, v = self.to_qkv(x)
+        # q, k, v = map(lambda x: x.transpose(1, 2), (q, k, v))  # bs, n_head, seqlen, head_dim
         
         if self.is_casual:
             self.casual_mask = torch.ones((seqlen, seqlen), dtype=torch.bool).tril(diagonal=0)
             attn_bias = torch.zeros_like(self.casual_mask, dtype=q.dtype).masked_fill(self.casual_mask.logical_not(), float('-inf'))
-        attn_weight = q @ k.transpose(-2, -1) / math.sqrt(self.head_dim)  # attn: bs, seqlen, seqlen
+        attn_weight = q @ k.transpose(-2, -1) / math.sqrt(self.head_dim)  # attn: bs, n_head seqlen, seqlen
+        assert attn_weight.shape == (bs, self.n_head, seqlen, seqlen)
         attn_weight += attn_bias
         attn_weight = torch.softmax(attn_weight, dim=-1)
         attn_weight = torch.dropout(attn_weight, self.dropout, train=True)
