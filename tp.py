@@ -112,6 +112,7 @@ def _apply_tp_ffn(mlp: FeedForward) -> None:
     _apply_tp_linear(mlp.w2, "rowwise")
 
     world_size = _get_world_size()
+    # The hook will be called every time after forward() has computed an output. It should have the following signature:
     mlp.register_forward_hook(lambda _module, _input, output: funcol.all_reduce(
         output, "sum", list(range(world_size))))
 

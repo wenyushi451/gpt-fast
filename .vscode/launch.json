@@ -5,6 +5,24 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "tp",
+            "type": "python",
+            "request": "launch",
+            "program": "/bigdisk/lax/weshiz/gitlab_workspace/gpt-fast/gpt/bin/torchrun",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--standalone", "--nproc_per_node=2", "generate.py", "--compile", "--checkpoint_path", "checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"],
+        },
+        {
+            "name": "test_tp",
+            "type": "python",
+            "request": "launch",
+            "program": "/bigdisk/lax/weshiz/gitlab_workspace/gpt-fast/gpt/bin/torchrun",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--standalone", "--nproc_per_node=2", "test_tp.py"],
+        },
+        {
             "name": "generate.py",
             "type": "python",
             "request": "launch",

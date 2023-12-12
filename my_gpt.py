@@ -71,12 +71,14 @@ class Attention(nn.Module):
 class FeedForward(nn.Module):
     def __init__(self, intermediate_size, dim) -> None:
         super().__init__()
-        self.w1 = nn.Linear(dim, intermediate_size)
-        self.w3 = nn.Linear(dim, intermediate_size)
-        self.w2 = nn.Linear(intermediate_size, dim)
+        self.w1 = nn.Linear(dim, intermediate_size, bias=False)
+        self.w3 = nn.Linear(dim, intermediate_size, bias=False)
+        self.w2 = nn.Linear(intermediate_size, dim, bias=False)
     
     def forward(self, x):
-        return self.w2(self.w1(x) + F.relu(self.w3(x)))
+        ret = self.w2(F.relu(self.w1(x)) + self.w3(x))
+        print(ret[0, :10])
+        return ret
 
 
 class TransformerBlock(nn.Module):
@@ -114,6 +116,6 @@ class Transformer(nn.Module):
         # TODO: speculate, sampling, kv cache
         pass
     
-    
+
 t = Transformer(4, 8, 128, 32000, 2048)
 t.forward(torch.randint(0, 32000, (1, 2048)))
