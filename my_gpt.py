@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed.elastic.multiprocessing.errors import record
 import torch.distributed as dist
 import torch.optim as optim
 
@@ -44,6 +45,7 @@ class Attention(nn.Module):
         self.dropout = dropout
         self.scale = scale
     
+    @record
     def forward(self, x):
         # x: bs, seqlen, dim
         bs, seqlen, dim = x.shape

@@ -29,7 +29,9 @@
             "program": "/bigdisk/lax/weshiz/gitlab_workspace/gpt-fast/gpt/bin/torchrun",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--standalone", "--nproc_per_node=2", "my_gpt.py"],
+            // "args": ["--standalone", "--nproc_per_node=2", "my_gpt.py"],
+            "args": ["--nnodes=2", "--nproc_per_node=2", "--node_rank=0", "--master_addr=asttst01.unx.sas.com", "--master_port=8009", "my_gpt.py"],
+            // "args": ["--nnodes=2", "--nproc_per_node=2", "--node_rank=1", "--master_addr=asttst01.unx.sas.com", "--master_port=8009", "my_gpt.py"],
         },
         {
             "name": "generate.py",
