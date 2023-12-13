@@ -23,6 +23,15 @@
             "args": ["--standalone", "--nproc_per_node=2", "test_tp.py"],
         },
         {
+            "name": "my_gpt",
+            "type": "python",
+            "request": "launch",
+            "program": "/bigdisk/lax/weshiz/gitlab_workspace/gpt-fast/gpt/bin/torchrun",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--standalone", "--nproc_per_node=2", "my_gpt.py"],
+        },
+        {
             "name": "generate.py",
             "type": "python",
             "request": "launch",

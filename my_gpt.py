@@ -1,6 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.distributed as dist
+import torch.optim as optim
+
 import math
 from einops import rearrange
 from einops.layers.torch import Rearrange
@@ -56,8 +60,8 @@ class Attention(nn.Module):
         # q, k, v = map(lambda x: x.transpose(1, 2), (q, k, v))  # bs, n_head, seqlen, head_dim
         
         if self.is_casual:
-            self.casual_mask = torch.ones((seqlen, seqlen), dtype=torch.bool).tril(diagonal=0)
-            attn_bias = torch.zeros_like(self.casual_mask, dtype=q.dtype).masked_fill(self.casual_mask.logical_not(), float('-inf'))
+            self.casual_mask = torch.ones((seqlen, seqlen), dtype=torch.bool, device=x.device).tril(diagonal=0)
+            attn_bias = torch.zeros_like(self.casual_mask, dtype=q.dtype, device=x.device).masked_fill(self.casual_mask.logical_not(), float('-inf'))
         attn_weight = q @ k.transpose(-2, -1) * self.scale  # attn: bs, n_head seqlen, seqlen
         assert attn_weight.shape == (bs, self.n_head, seqlen, seqlen)
         attn_weight += attn_bias
@@ -77,7 +81,6 @@ class FeedForward(nn.Module):
     
     def forward(self, x):
         ret = self.w2(F.relu(self.w1(x)) + self.w3(x))
-        print(ret[0, :10])
         return ret
 
 
@@ -103,6 +106,7 @@ class Transformer(nn.Module):
         self.attn = nn.ModuleList(TransformerBlock(attn, ffn) for _ in range(n_layers))
         self.out_layer = nn.Linear(head_dim, vocab_size, bias=False)
         self.is_casual = is_casual
+        self.ce_loss = nn.CrossEntropyLoss()
     
     def forward(self, x):
         x_embed = self.token_embedding(x)
@@ -117,5 +121,30 @@ class Transformer(nn.Module):
         pass
     
 
-t = Transformer(4, 8, 128, 32000, 2048)
-t.forward(torch.randint(0, 32000, (1, 2048)))
+if __name__ == '__main__':
+    
+    dist.init_process_group("nccl")
+    rank = dist.get_rank()
+    print(f"Start running basic DDP example on rank {rank}.")
+    
+    device_id = rank % torch.cuda.device_count()
+    vocab_size = 32000
+    max_seq_length = 2048
+    batch_size = 8
+    
+    t = Transformer(4, 8, 128, vocab_size, max_seq_length).to(device_id)
+    ddp_model = DDP(t, device_ids=[device_id])
+    optimizer = optim.SGD(ddp_model.parameters(), lr=0.1)
+    optimizer.zero_grad()
+    
+    inp = torch.randint(0, vocab_size, (batch_size, max_seq_length)).to(device_id)
+    pred = t.forward(inp)
+    y = torch.zeros((batch_size, vocab_size), dtype=torch.long).to(device_id)
+    target = torch.randint(0, vocab_size, (batch_size,)).to(device_id)
+    y.scatter_(1, target.unsqueeze(1), 1)
+    t.ce_loss(pred, y).backward()
+    optimizer.step()
+    # dist.barrier()
+    print(f"rank {rank}: text_emb grad: {ddp_model.module.token_embedding.weight.grad[0, :10] * 1000}")
+    print(f"rank {rank}: text_emb weight after optim step: {list(t.parameters())[0][0, :10]}")
+    print(f"Finish running basic DDP example on rank {rank}.")
